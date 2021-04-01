@@ -28,6 +28,7 @@ Figure out what the function `determine_precision` is trying to do and fill out 
 
 are_numerically_distinguishable <- function(value1, value2) {
   # Fill in
+  value1 != value2
 }
 
 determine_precision <- function(init_upper_bound = 1) {
@@ -71,9 +72,21 @@ n_unique_double <- 2^53 # Number of unique machine-representable values in [0, 1
 n_draw <- 10^6
 
 # Fill in
+set.seed(17)
+samples = runif(n_draw)
 
+#results in practice
+sum(duplicated(samples))
+#(10^6 - length(unique(samples))) / 10^6
+
+#results in theory
+est_num_expected_duplicate(n_draw, n_unique_double)
+
+#(10^6 - 1) * (1 + (n_unique_double - 1) * log(1 - 1 / n_unique_double))
+10^6 - 2^53 * (1 - (1 - 2^{-53})^10^6)
 ```
 
+It is quite strange that there is a large difference between theoretical result and result in practice. Since R uses IEEE 754 double-precision floating-point numbers, 'n_unique_double' is correctly defined. I also check the result with the formula in the paper without using approximation, the result is still not comparable with that in practice.
 
 # Problem 3
 You have learned in the class that the centered difference $\frac{f(x + \Delta x) - f(x - \Delta x)}{2 \Delta x}$ approximates the derivative $f'(x)$ up to an $O(\Delta x^2)$ error.
@@ -85,15 +98,18 @@ What do you expect the slope of the plotted line to be?
 ```{r}
 #' Approximate derivative via centered-difference approximation
 approximate_deriv <- function(func, x, dx) {
+  return (func(x + dx) - func(x - dx)) / (2 * dx)
   # Fill in
 }
 
 log_logistic_func <- function(x) {
+  return (log(exp(x) / (1 + exp(x))))
   # Fill in
 }
 
 log_logistic_deriv <- function(x) {
   # Fill in
+  return (1 - exp(x) / (1 + exp(x)))
 }
 
 # Calculate and plot the relative errors of finite difference approximations
@@ -125,6 +141,8 @@ plot(
 ```
 Does your output agree with what you expected? 
 Explain the observed phenomenon.
+
+Yes. It does agree what I have expected. When we have smaller dx, we can approach the true derivative more closely.  
 
 **Bonus question 1:** What is the slope in the "latter part" of your plotted line?
 
@@ -170,6 +188,8 @@ compute_internet_ad_ploglik <- function(reg_coef) {
 
 optim_result <- optim(
   # Fill in
+  par = rep(1, 1430),
+  fn = compute_internet_ad_ploglik,
   method = 'Nelder-Mead', # gradient-free algorithm
   control = list(fnscale = -1) # Maximize the function
 )
