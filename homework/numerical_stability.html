@@ -1723,7 +1723,42 @@ return((1 + sqrt(5) * scaled_dist + 5 / 3 * scaled_dist^2)* exp(- sqrt(5) * scal
 <p>Then use the eigen decomposition technique as before for interpolation and uncertainty quantification. Afterward, check the condition number of <span class="math inline">\(\boldsymbol{\Sigma}_{\textrm{obs}}\)</span> and see if you can directly compute <span class="math inline">\(\boldsymbol{\Sigma}_{\textrm{obs}}^{-1} \boldsymbol{y}_{\textrm{obs}}\)</span> using the <code>solve</code> function. Do we get the same answer as the one based on eigen decomposition?</p>
 <pre class="r"><code># Fill in
 Sigma_obs &lt;- matern_cov(dist_obs, corr_range)
-y_obs &lt;- mvrnorm(mu = rep(0, n_obs), Sigma = Sigma_obs)</code></pre>
+y_obs &lt;- mvrnorm(mu = rep(0, n_obs), Sigma = Sigma_obs)
+
+loc_new &lt;- seq(.41, .59, .01)
+# Compute the conditional mean of GP on the new locations.
+
+n_new &lt;- length(loc_new)
+dist_new &lt;- as.matrix(dist(loc_new))
+Sigma_new &lt;- sq_exp_cov(dist_new, corr_range)
+cross_dist &lt;- as.matrix(dist(c(loc_new, loc_obs)))
+cross_dist &lt;- cross_dist[1:n_new, (n_new + 1):(n_new + n_obs)]
+Sigma_cross &lt;- sq_exp_cov(cross_dist, corr_range)
+mean_obs &lt;- rep(0, n_obs)
+mean_new &lt;- rep(0, n_new)
+
+eigen_decomp &lt;- eigen(Sigma_obs)
+eigen_vec &lt;- eigen_decomp$vectors
+eigen_val &lt;- eigen_decomp$values
+
+#based on below result, we choose first 7 PCs
+#0.9849936
+sum(eigen_decomp$values[1:6])/sum(eigen_decomp$values)</code></pre>
+<pre><code>## [1] 0.9849936</code></pre>
+<pre class="r"><code>#0.9910972
+sum(eigen_decomp$values[1:7])/sum(eigen_decomp$values)</code></pre>
+<pre><code>## [1] 0.9910972</code></pre>
+<pre class="r"><code>inverse_Sigma_obs &lt;- get_inverse_matrix(eigen_decomp, 7, 82)
+gauss_conditional_mean &lt;- function(y_2, mu_1, mu_2, cov_12, inverse_cov_22) {
+  return(mu_1 + cov_12 %*% inverse_cov_22 %*% (y_2 - mu_2))
+}
+
+gauss_conditional_mean_solve &lt;- function(y_2, mu_1, mu_2, cov_12, cov_22) {
+  return(mu_1 + cov_12 %*% solve(cov_22, y_2 - mu_2))
+}
+
+y_predicted1 &lt;- gauss_conditional_mean(y_obs, mean_new, mean_obs, Sigma_cross, inverse_Sigma_obs)
+y_predicted2 &lt;- gauss_conditional_mean_solve(y_obs, mean_new, mean_obs, Sigma_cross, Sigma_obs)</code></pre>
 <p><strong>Bonus question:</strong> Symmetric positive-definite matrices can be inverted more quickly via the <em>Cholesky decomposition</em> <span class="math inline">\(\boldsymbol{L} \boldsymbol{L}^\intercal = \boldsymbol{A}\)</span> than via the LU or QR decomposition. <!-- The LU decomposition takes $O(2 n^3 / 3)$, QR $O(4 n^3 / 3)$, and Cholesky $O(n^3 / 3)$ operations. --> The Cholesky decomposition also provides the “sqrt” of covariance matrix you need to sample from multivariate Gaussians. (Though you might be stuck with the eigen decomposition technique if the matrix is ill-conditioned.) Try computing <span class="math inline">\(\boldsymbol{\Sigma}_{\textrm{obs}}^{-1} \boldsymbol{y}_{\textrm{obs}}\)</span> via <code>chol</code> and <code>forward/backsolve</code>.</p>
 </div>
 </div>

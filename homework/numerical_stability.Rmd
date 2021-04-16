@@ -153,6 +153,40 @@ Do we get the same answer as the one based on eigen decomposition?
 # Fill in
 Sigma_obs <- matern_cov(dist_obs, corr_range)
 y_obs <- mvrnorm(mu = rep(0, n_obs), Sigma = Sigma_obs)
+
+loc_new <- seq(.41, .59, .01)
+# Compute the conditional mean of GP on the new locations.
+
+n_new <- length(loc_new)
+dist_new <- as.matrix(dist(loc_new))
+Sigma_new <- sq_exp_cov(dist_new, corr_range)
+cross_dist <- as.matrix(dist(c(loc_new, loc_obs)))
+cross_dist <- cross_dist[1:n_new, (n_new + 1):(n_new + n_obs)]
+Sigma_cross <- sq_exp_cov(cross_dist, corr_range)
+mean_obs <- rep(0, n_obs)
+mean_new <- rep(0, n_new)
+
+eigen_decomp <- eigen(Sigma_obs)
+eigen_vec <- eigen_decomp$vectors
+eigen_val <- eigen_decomp$values
+
+#based on below result, we choose first 7 PCs
+#0.9849936
+sum(eigen_decomp$values[1:6])/sum(eigen_decomp$values)
+#0.9910972
+sum(eigen_decomp$values[1:7])/sum(eigen_decomp$values)
+
+inverse_Sigma_obs <- get_inverse_matrix(eigen_decomp, 7, 82)
+gauss_conditional_mean <- function(y_2, mu_1, mu_2, cov_12, inverse_cov_22) {
+  return(mu_1 + cov_12 %*% inverse_cov_22 %*% (y_2 - mu_2))
+}
+
+gauss_conditional_mean_solve <- function(y_2, mu_1, mu_2, cov_12, cov_22) {
+  return(mu_1 + cov_12 %*% solve(cov_22, y_2 - mu_2))
+}
+
+y_predicted1 <- gauss_conditional_mean(y_obs, mean_new, mean_obs, Sigma_cross, inverse_Sigma_obs)
+y_predicted2 <- gauss_conditional_mean_solve(y_obs, mean_new, mean_obs, Sigma_cross, Sigma_obs)
 ```
 
 **Bonus question:** Symmetric positive-definite matrices can be inverted more quickly via the _Cholesky decomposition_ $\boldsymbol{L} \boldsymbol{L}^\intercal = \boldsymbol{A}$ than via the LU or QR decomposition. 
