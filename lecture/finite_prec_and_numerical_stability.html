@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="" xml:lang="">
+  <head>
+    <title>Finite precision arithmetic   &amp;  Numerical stability</title>
+    <meta charset="utf-8" />
+    <meta name="author" content="Aki Nishimura" />
+    <meta name="date" content="2021-04-16" />
+    <link href="libs/remark-css-0.0.1/default.css" rel="stylesheet" />
+    <link href="libs/remark-css-0.0.1/default-fonts.css" rel="stylesheet" />
+    <link rel="stylesheet" href="extra.css" type="text/css" />
+  </head>
+  <body>
+    <textarea id="source">
+class: center, middle, inverse, title-slide
+
+# Finite precision arithmetic <br> &amp;  Numerical stability
+### Aki Nishimura
+### 2021-04-16
+
+---
+
+<script type="text/x-mathjax-config">
+MathJax.Hub.Config({
+  TeX: {
+    extensions: ["color.js"],
+    Macros: {
+      bx: "{\\boldsymbol{x}}",
+      by: "{\\boldsymbol{y}}",
+      bf: "{\\boldsymbol{f}}",
+      bA: "{\\boldsymbol{A}}",
+      bdelta: "{\\boldsymbol{\\delta}}",
+      bSigma: "{\\boldsymbol{\\Sigma}}",
+      given: "{\\, | \\,}",
+      eqDistribution: "{\\overset{\\small \\textrm{d}}{=}}",
+      iid: "{\\mathbin{\\overset{\\small \\textrm{i.i.d.}}{\\sim}}}",
+      normalDist: "{\\mathcal{N}}"
+    }
+  }
+});
+</script>
+
+<span style="display: none;">
+  $$\newcommand{\bm}[1]{\boldsymbol{#1}}$$
+  $$\definecolor{lava}{rgb}{0.81, 0.06, 0.13}$$
+</span>
+
+
+
+# Floating point numbers
+
+Example: 64-bits double-precision number
+
+&lt;img src="figure/double_precision_number.png" width="1648" /&gt;
+
+52-bits fraction:&lt;br&gt;
+`\(\qquad\)` 10110... = 1/2 + 0/4 + 1/8 + 1/16 + 0/32 + ...
+
+--
+
+
+```r
+c((1 + 2^(-52)) - 1, 
+  (1 + 2^(-53)) - 1)
+```
+
+```
+## [1] 2.220446e-16 0.000000e+00
+```
+
+---
+
+# Floating point numbers
+
+Example: 64-bits double-precision number
+
+&lt;img src="figure/double_precision_number.png" width="1648" /&gt;
+
+11-bits exponent:&lt;br&gt;
+`\(\qquad\)` `\(2^{11} = 2048\)`, covering −1022 to +1023
+
+--
+
+
+```r
+c(2^(1023), 2^(1024), 2^(-1022 - 52), 2^(-1023 - 52))
+```
+
+```
+## [1] 8.988466e+307           Inf 4.940656e-324  0.000000e+00
+```
+
+---
+
+# Floating point numbers
+
+Example: 64-bits double-precision number
+
+
+```r
+c(.Machine$double.xmax, .Machine$double.eps)
+```
+
+```
+## [1] 1.797693e+308  2.220446e-16
+```
+
+--
+
+
+```r
+log(.Machine$double.xmax)
+```
+
+```
+## [1] 709.7827
+```
+
+```r
+c(exp(709), exp(710))
+```
+
+```
+## [1] 8.218407e+307           Inf
+```
+
+---
+
+# Floating point numbers
+
+Example: multinomial logit in double-precision
+
+
+```r
+n_obs &lt;- 5 # just to save memory
+n_pred &lt;- 10^6
+n_category &lt;- 3
+
+set.seed(140850)
+X &lt;- matrix(
+  rnorm(n_obs * n_pred), 
+  n_obs, n_pred
+)
+reg_coef &lt;- matrix(
+  rnorm(n_pred * n_category), 
+  n_pred, n_category
+)
+
+log_category_prob &lt;- as.vector(X[1, ] %*% reg_coef)
+category_prob &lt;- exp(log_category_prob) / sum(exp(log_category_prob))
+```
+--
+&lt;p style="margin-top:-1.5ex;"&gt; &lt;/p&gt;
+
+```r
+category_prob
+```
+
+```
+## [1]   0   0 NaN
+```
+---
+
+# Floating point numbers
+
+Example: multinomial logit in double-precision
+
+
+```r
+n_obs &lt;- 5 # just to save memory
+n_pred &lt;- 10^6
+n_category &lt;- 3
+
+set.seed(140850)
+X &lt;- matrix(
+  rnorm(n_obs * n_pred), 
+  n_obs, n_pred
+)
+reg_coef &lt;- matrix(
+  rnorm(n_pred * n_category), 
+  n_pred, n_category
+)
+
+log_category_prob &lt;- as.vector(X[1, ] %*% reg_coef)
+category_prob &lt;- exp(log_category_prob) / sum(exp(log_category_prob))
+log_category_prob
+```
+
+```
+## [1] -867.4241  156.3510 1550.6214
+```
+
+---
+
+# Floating point numbers
+
+## Example: accuracy of numerical gradient
+
+Numerical differentiation is one practical situation in which you clearly observe an effect of finite-precision.
+
+--
+
+Taylor's theorem tells us that
+`$$f(x + \Delta x) = f(x) + \Delta x f'(x) + \frac{(\Delta x)^2}{2} f''(x) + \ldots.$$`
+
+--
+
+So we can approximate `\(f'(x)\)` using the relation
+`$$\frac{f(x + \Delta x) - f(x)}{\Delta x} \approx f'(x) + O(\Delta x).$$`
+---
+
+# Floating point numbers
+
+## Example: accuracy of numerical gradient
+But we can do better; note that
+.small[$$f(x + \Delta x) = f(x) + \Delta x f'(x) + \frac{(\Delta x)^2}{2} f''(x) + \frac{(\Delta x)^3}{6} f'''(x) + \ldots$$]
+.small[$$f(x - \Delta x) = f(x) - \Delta x f'(x) + \frac{(\Delta x)^2}{2} f''(x) - \frac{(\Delta x)^3}{6} f'''(x) + \ldots$$]
+
+--
+
+So we have 
+`$$\frac{f(x + \Delta x) - f(x - \Delta x)}{2 \Delta x} \approx f'(x) + O((\Delta x)^2),$$`
+which is called _centered difference approximation_.
+
+---
+
+# Floating point numbers
+
+## Example: accuracy of numerical gradient
+We can extend the idea to get higher-order estimates e.g.
+.small[$$\frac{- f(x + 2 \Delta x) + 8 f(x + \Delta x) - 8 f(x - \Delta x) + f(x - 2 \Delta x)
+  }{12 \Delta x} 
+  = f'(x) + O((\Delta x)^4).$$]
+
+--
+
+BUT these higher-order methods aren't really practical.
+(You will find out one major reason in the homework.)
+
+--
+
+**Note:** For functions with multivariate inputs, we have 
+`\(f(\bx + \Delta x \, \bm{e}_i) = f(\bx) + \Delta x \, \partial_i f(\bx) + \ldots\)`.
+
+---
+class: inverse, middle, center
+
+# (ill)conditing and numerical (in)stability
+
+---
+
+# Example: Gaussian process regression
+
+Let's first review a property of multivariate Gaussian.
+
+--
+
+**Fact:** The conditional distribution of 
+`$$\begin{bmatrix} \by_1 \\ \by_2 \end{bmatrix} 
+  \sim \normalDist \left(
+    \begin{bmatrix} \bm{\mu}_1 \\ \bm{\mu}_2 \end{bmatrix},
+    \begin{bmatrix} \bSigma_{11} &amp; \bSigma_{12} \\ 
+    \bSigma_{21} &amp; \bSigma_{22} \end{bmatrix}
+  \right)$$`
+is given by
+`$$\by_1 \given \by_2
+  \sim \normalDist\left( 
+    \bm{\mu}_1 + \bSigma_{12} \bSigma_{22}^{-1} (\by_2 - \bm{\mu}_2),  
+    \bSigma_{11} - \bSigma_{12} \bSigma_{22}^{-1} \bSigma_{21}
+  \right).$$`
+
+---
+
+# Example: Gaussian process regression
+
+_Gaussian process_ `\(\, y(\bm{s}): \mathbb{R}^d \to \mathbb{R}\)` is a Bayesian non-parametric prior for an unknown function.
+
+--
+
+&lt;img src="figure/gp_regression_prior_posterior_prediction.png" width="100%" /&gt;
+
+--
+
+Its defining propety is that `\(\left( y(\bm{s}_1), \ldots, y(\bm{s}_n) \right)\)` is multivariate Gaussian for any set of `\(\bm{s}_1, \ldots, \bm{s}_n\)`.
+
+---
+
+# Example: Gaussian process regression
+
+Besides `\(\mu(\bm{s}) = \mathbb{E}(y(\bm{s}))\)`, the _covariance function_ 
+`$$k(\bm{s}, \bm{s}') = \textrm{cov}(y(\bm{s}), y(\bm{s}'))$$` 
+characterizes GP's behavior.
+&lt;!-- More formally, a covariance function is a semi-positive definite symmetric kernel. --&gt;
+
+--
+
+&lt;p style="margin-top:3ex;"&gt; &lt;/p&gt;
+**Example:** Squared exponential covariance
+
+`$$k(\bm{s}, \bm{s}') = \sigma^2 \prod_i \exp\left(- \frac{(s_i - s_i')^2}{2 \ell_i^2} \right)$$`
+where `\(\ell_i\)`'s are _range_ parameters.
+
+???
+
+A covariance function essentially measures similarity (or inverse distance) between two points `\(\bm{s}\)` and `\(\bm{s}'\)`.
+
+The multiplication by `\(\bm{\Sigma}_{12}\)` is reminiscent of kernel density smoothing.
+
+&lt;!-- Matern covariance with smoothness `\(\nu = 5/2\)`: --&gt;
+&lt;!-- $$k_{5/2}(r) = \left( --&gt;
+&lt;!--   1 + \frac{\sqrt{5} r}{\ell} + \frac{5 r^2}{3 \ell^2}\right) \exp\left(- \frac{\sqrt{5} r}{\ell}  --&gt;
+&lt;!-- \right)$$ --&gt;
+&lt;!-- Eq (4.17) in Rasmussen and Williams. --&gt;
+
+&lt;!-- matern_cov &lt;- function(dist, range) { --&gt;
+&lt;!--   scaled_dist &lt;- dist / range --&gt;
+&lt;!--   return( --&gt;
+&lt;!--     (1 + sqrt(5) * scaled_dist + 5 / 3 * scaled_dist^2)  --&gt;
+&lt;!--     * exp(- sqrt(5) * scaled_dist) --&gt;
+&lt;!--   ) --&gt;
+&lt;!-- } --&gt;
+
+---
+
+# Example: Gaussian process regression
+
+Now let's see GP in action. Say we observe a function over a grid with "gap" and want to fill it in:
+
+
+
+&lt;img src="finite_prec_and_numerical_stability_files/figure-html/unnamed-chunk-12-1.png" width="576" style="display: block; margin: auto;" /&gt;
+
+---
+
+# Example: Gaussian process regression
+
+Here's how we simulated a function from a GP with squared exponential covariance in the previous plot:
+
+
+```r
+sq_exp_cov &lt;- function(dist, range) {
+  return(exp(-(dist / range)^2))
+}
+
+loc_obs &lt;- c(seq(0, .4, .01), seq(.6, 1, .01))
+n_obs &lt;- length(loc_obs)
+
+set.seed(2021)
+corr_range &lt;- .2
+dist_obs &lt;- as.matrix(dist(loc_obs))
+Sigma_obs &lt;- sq_exp_cov(dist_obs, corr_range)
+y_obs &lt;- mvrnorm(mu = rep(0, n_obs), Sigma = Sigma_obs)
+plot(loc_obs, y_obs)
+```
+
+---
+
+# Example: Gaussian process regression
+
+
+
+Let's now try to interpolate the function:
+
+
+```r
+#' Compute the conditional mean of `y_1` given `y_2`
+gauss_conditional_mean &lt;- function(y_2, mu_1, mu_2, cov_12, cov_22) {
+  return(mu_1 + cov_12 %*% solve(cov_22, y_2 - mu_2))
+}
+```
+
+---
+
+# Example: Gaussian process regression
+
+Let's now try to interpolate the function:
+
+
+```r
+loc_new &lt;- seq(.41, .59, .01)
+n_new &lt;- length(loc_new)
+
+dist_new &lt;- as.matrix(dist(loc_new))
+Sigma_new &lt;- sq_exp_cov(dist_new, corr_range)
+cross_dist &lt;- as.matrix(dist(c(loc_new, loc_obs)))
+cross_dist &lt;- cross_dist[1:n_new, (n_new + 1):(n_new + n_obs)]
+Sigma_cross &lt;- sq_exp_cov(cross_dist, corr_range)
+mean_obs &lt;- rep(0, n_obs)
+mean_new &lt;- rep(0, n_new)
+```
+
+--
+
+Ready, set, ...
+
+```r
+y_predicted &lt;- gauss_conditional_mean(y_obs, mean_new, mean_obs, Sigma_cross, Sigma_obs)
+```
+
+---
+
+# Example: Gaussian process regression
+
+Let's now try to interpolate the function:
+
+
+```r
+loc_new &lt;- seq(.41, .59, .01)
+n_new &lt;- length(loc_new)
+
+dist_new &lt;- as.matrix(dist(loc_new))
+Sigma_new &lt;- sq_exp_cov(dist_new, corr_range)
+cross_dist &lt;- as.matrix(dist(c(loc_new, loc_obs)))
+cross_dist &lt;- cross_dist[1:n_new, (n_new + 1):(n_new + n_obs)]
+Sigma_cross &lt;- sq_exp_cov(cross_dist, corr_range)
+mean_obs &lt;- rep(0, n_obs)
+mean_new &lt;- rep(0, n_new)
+```
+
+Ready, set, ... go! (Oops.)
+
+```r
+y_predicted &lt;- gauss_conditional_mean(y_obs, mean_new, mean_obs, Sigma_cross, Sigma_obs)
+```
+
+```
+## Error in solve.default(cov_22, y_2 - mu_2): 系统计算上是奇异的:
+倒条件数=1.31534e-20
+```
+
+---
+
+# Conditioning of problem
+
+Think of a _problem_, machine implementation of which is an _algorithm_, as a map: `\(\, x \to f(x)\)` (e.g. `\(\boldsymbol{x} \to \boldsymbol{A}^{-1} \boldsymbol{x}\)`).
+
+--
+
+**Question:** How sensitive is a problem `\(f(x)\)` to small perturbation in the input `\(x\)`?
+
+--
+
+Measure of this sensitivity is called a _condition number_.
+
+--
+
+&lt;p style="margin-top:4ex;"&gt; &lt;/p&gt;
+## Example of why we might care about this:
+* Say `\(\boldsymbol{x} + \boldsymbol{\delta x}\)` is a machine representation of `\(\boldsymbol{x}\)`.
+* How far away is `\(\boldsymbol{A}^{-1} (\boldsymbol{x} + \boldsymbol{\delta x})\)` from `\(\boldsymbol{A}^{-1} \boldsymbol{x}\)`?
+
+---
+
+# Condition number
+
+_Relative condition number_ is defined as
+
+`$$\kappa := \lim_{\| \bdelta \bx \| \to 0} \sup_{\bdelta \bx} 
+\frac{
+  \| \bf(\bx + \bdelta \bx) - \bf(\bx) \| / \| \bf(\bx) \|
+  }{
+  \| \bdelta \bx \| / \| \bx \|
+},$$`
+where `\(\| \bx \| = \left( \sum_i x_i^2 \right)^{1/2}\)` is the `\(\ell^2\)`-norm.  
+
+--
+
+We say a problem is _well-conditioned_ if `\(\kappa\)` is small (e.g. `\(\kappa \lesssim 10^2\)`) and _ill-conditioned_ if `\(\kappa\)` large (e.g. `\(\kappa \gtrsim 10^6\)`).
+
+--
+
+In particular, when `\(\kappa \approx 10^{16} \approx (\text{machine prec})^{-1}\)`, no algorithm can guarantee a meaningful result.
+
+---
+
+# Condition number
+
+## Example of ill-conditioned problem: eigenvalues of non-symmetric matrices
+Eigenvalues of
+`\(\begin{bmatrix} 1 &amp; 10^{16} \\ 0 &amp; 1 \end{bmatrix}\)` 
+are {1, 1}. 
+
+--
+
+But those of `\(\begin{bmatrix} 1 &amp; 10^{16} \\ 10^{-16} &amp; 1 \end{bmatrix}\)` are {0, 2}. &lt;br&gt;
+`\(\qquad\)` (To see this, note that `\(\lambda_1 \lambda_2 = 0\)` and `\(\lambda_1 + \lambda_2 = 2\)`.)
+
+--
+
+&lt;p style="margin-top:3ex;"&gt;
+On the other hands, the eigenvalues of a symmetric matrix are well-conditioned.
+&lt;/p&gt;
+
+---
+
+# Condition number of a matrix
+
+**Question:** What is the condition number of a matrix-vector multiplication `\(\bx \to \bA \bx\)`?
+
+--
+
+First define the _matrix norm_ `\(\| \bA \| := \max_{\bm{v}} \| \bA \bm{v} \| / \| \bm{v} \|\)`, corresponding to the largest singular value of `\(\bA\)`.
+
+--
+&lt;p style="margin-top:3ex;"&gt; &lt;/p&gt;
+Now, let's study what happens under perturbation `\(\bdelta \bx\)`:
+`$$\hspace{-1.5em} \frac{
+  \| \bA(\bx + \bdelta \bx) - \bA \bx \| / \| \bA \bx \|
+  }{
+  \| \bdelta \bx \| / \| \bx \|
+} = \frac{
+  \| \bA \bdelta \bx \| / \| \bdelta \bx \|
+  }{
+  \| \bA \bx \| / \| \bx \|
+} \leq \| \bA \| \| \bA^{-1} \|.$$`
+
+(The inequality follows from `\(\| \bA \bdelta \bx \| / \| \bdelta \bx \| \leq \| \bA \|\)` 
+and `\(\| \bx \| / \| \bA \bx \| = \| \bA^{-1} \bA \bx \| / \| \bA \bx \| \leq \| \bA^{-1} \|\)`.)
+
+---
+
+# Condition number of a matrix
+
+So we have shown that 
+`$$\kappa(\bx \to \bA \bx) \leq \| \bA \| \| \bA^{-1} \|.$$`
+
+--
+
+`\(\| \bA \| \| \bA^{-1} \|\)` turns out to be such a fundamental quantity in numerical linear algebra that we define
+`$$\kappa(\bA) := \| \bA \| \| \bA^{-1} \|.$$`
+--
+
+## Note:
+* `\(\kappa(\bA) = \kappa(\bA^{-1})\)`
+* `\(\kappa(\bA) = \sigma_{\max}(\bA) / \sigma_{\min}(\bA)\)`, the ratio of the largest and smallest singular value. 
+&lt;!-- Solving a linear system `\(\bA \bx = \bm{b}\)` is one of the most common problem in statistical/scientific computing. --&gt;
+
+&lt;!-- **Question:** How acurate can `\(\bx = \bA^{-1} \bm{b}\)` be? --&gt;
+---
+
+# When matrix becomes ill-conditioned
+
+Remember that malicious error?
+
+
+```r
+y_predicted &lt;- gauss_conditional_mean(y_obs, mean_new, mean_obs, Sigma_cross, Sigma_obs)
+```
+
+```
+## Error in solve.default(cov_22, y_2 - mu_2): 系统计算上是奇异的:
+倒条件数=1.31534e-20
+```
+
+--
+
+This is caused by the ill-conditioned covariance matrix: 
+
+
+```r
+kappa(Sigma_obs)
+```
+
+```
+## [1] 3.565336e+19
+```
+
+---
+
+# Accuracy of linear algebra algorithms
+
+Good algorithms for solving `\({\bA \bx = \bm{b}}\)` for `\({\bx}\)`  satisfies
+`$$\newcommand{\algOutputMarker}[1]{\widetilde{#1}}
+  \frac{\| \algOutputMarker{\bx} - \bx \|}{\| \bx \|} \, = \mathcal{O}(\kappa(\bA) \epsilon_{\textrm{machine}})$$`
+where `\(\epsilon_{\textrm{machine}} \approx 10^{-16}\)` (for most practical purposes).
+&lt;!-- See Section 13 of Trefethen for a precise definition of machine epsilon. --&gt;
+
+--
+
+## Example: Solving `\(\small{\bm{X} \bm{\beta} = \bm{y}}\,\)` for `\(\small{\bm{\beta}}\,\)` via QR-decomposition
+&lt;!-- Assuming, say, Householder triangulation for QR-decomposition. --&gt;
+* First compute an orthogonal `\(\bm{Q}\)` (i.e. `\(\bm{Q}^\intercal \bm{Q} = \bm{I}\)`) and upper triangular matrix `\(\bm{R}\)` such that `\(\bm{Q} \bm{R} = \bm{X}\)`.
+* Then compute `\(\algOutputMarker{\bm{\beta}}\)` as `\(\bm{R}^{-1} \bm{Q}^\intercal \bm{y}\)`.
+* This satisfies `\(\| \algOutputMarker{\bm{\beta}} - \bm{\beta} \| / \| \bm{\beta} \| = \mathcal{O}(\kappa(\bA) \epsilon_{\textrm{machine}})\)`.
+
+---
+
+# Accuracy of least-square algorithms
+
+QR-decomposition is also the standard approach for solving a least-square problem for finding
+`$$\widehat{\bm{\beta}} 
+  = \arg\min_{\bm{\beta}} \|\bm{y} - \bm{X} \bm{\beta} \|^2
+  = (\bm{X}^\intercal \bm{X})^{-1} \bm{X}^\intercal \bm{y}.$$`
+
+--
+
+If `\(\bm{X} = \bm{Q} \bm{R}\)` for `\(\bm{Q} \in \mathbb{R}^{n \times p}\)` and `\(\bm{R} \in \mathbb{R}^{p \times p}\)`, then 
+`$$\widehat{\bm{\beta}} = \bm{R}^{-1} \bm{Q}^\intercal \bm{y}.$$`
+
+--
+
+Numerical error in actually computing `\(\widehat{\bm{\beta}}\)` has the order
+`$$\left(
+  \kappa(\bm{X}) + \frac{\| \bm{X} \widehat{\bm{\beta}} - \bm{y} \|}{\| \bm{X} \widehat{\bm{\beta}} \|} \kappa^2(\bm{X})
+  \right) \epsilon_{\textrm{machine}}.$$`
+
+---
+
+# Accuracy of least-square algorithms
+
+DON'T do
+
+```r
+beta_hat &lt;- solve(t(X) %*% X, t(X) %*% y)
+```
+because it guarantees error of order `\(\kappa(\bm{X}^\intercal \bm{X}) = \kappa^2(\bm{X})\)`.
+
+--
+
+&lt;p style="margin-top:3ex;"&gt; &lt;/p&gt;
+And please, pretty please, DON'T EVER do
+
+```r
+XTX_inverse &lt;- solve(t(X) %*% X)
+beta_hat &lt;- XTX_inverse %*% (t(X) %*% y)
+```
+
+**Note:**
+(Iteratively) minimizing weighted least-square `\(\| \bm{W}^{1/2} (\bm{X} \bm{\beta} - \bm{y}) \|^2\)` has an essentially identical structure.
+
+---
+class: inverse, middle, center
+
+# How to deal with ill-conditioned matrices
+
+---
+layout: true
+
+# Review of singular/eigen value decomp&lt;br&gt; and mutivariate Gaussian theory
+
+---
+
+_Singular value decomposition_ (SVD) is arguably the most versatile tool to deal with ill-conditioned matrices.&lt;br&gt;
+--
+(If not the most efficient for each specific situation.)
+
+--
+
+## (Important) special case: symmetric positive-definite
+In this case, SVD coincides with _eigenvalue decomposition_:
+`$$\bm{A} = \bm{U} \bm{\Lambda} \bm{U}^\intercal$$`
+where `\(\bm{U}\)` orthogonal (i.e. `\(\bm{U}^\intercal \bm{U} = \bm{I}\)`) and `\(\bm{\Lambda}\)` diagonal.
+
+---
+
+Eigen decomposition `\(\bm{A} = \bm{U} \bm{\Lambda} \bm{U}^\intercal\)` is equivalent to
+`$$\bm{A} = \textstyle \sum_i \lambda_i \bm{u}_i \bm{u}_i^\intercal \, \text{ for } \, \langle \bm{u}_i, \bm{u}_j \rangle = \mathbb{I}\{ i = j \},$$`
+where we assume `\(\lambda_1 &gt; \lambda_2 &gt; \ldots \geq 0\)` as is customary.
+
+--
+
+## Eigen decomposition and principal component analysis
+
+Gaussian `\(\bx \sim \normalDist(\bm{\mu}, \bm{\Sigma} = \bm{U} \bm{\Lambda} \bm{U}^\intercal)\)` can be expressed as
+`$$\bx \overset{\small \textrm{d}}{=} \bm{\mu} + \textstyle \sum_i \lambda_i^{1/2} z_i \bm{u}_i \, \text{ for } \, z_i \iid \normalDist(0, 1).$$` 
+In other words, `\(\bm{u}_1, \bm{u}_2, \ldots\)` are principal components.
+
+---
+
+## Example: Gaussian process
+
+Here is our old friend, the squared exponential GP:
+
+
+```r
+loc_obs &lt;- c(seq(0, .4, .01), seq(.6, 1, .01))
+n_obs &lt;- length(loc_obs)
+
+set.seed(2021)
+corr_range &lt;- .2
+dist_obs &lt;- as.matrix(dist(loc_obs))
+Sigma_obs &lt;- sq_exp_cov(dist_obs, corr_range)
+y_obs &lt;- mvrnorm(mu = rep(0, n_obs), Sigma = Sigma_obs)
+```
+
+---
+
+## Example: Gaussian process
+
+Let's principal component analyze our GP friend:
+
+
+```r
+eigen_decomp &lt;- eigen(Sigma_obs)
+eigen_vec &lt;- eigen_decomp$vectors
+eigen_val &lt;- eigen_decomp$values
+```
+
+--
+
+How do the principal components look like?
+
+
+```r
+n_pc_to_plot &lt;- 3
+plot.new()
+for (i in 1:n_pc_to_plot) {
+  points(loc_obs, sqrt(eigen_val[i]) * eigen_vec[, i])
+}
+```
+
+---
+
+&lt;img src="finite_prec_and_numerical_stability_files/figure-html/unnamed-chunk-26-1.png" style="display: block; margin: auto;" /&gt;
+
+---
+
+&lt;img src="finite_prec_and_numerical_stability_files/figure-html/unnamed-chunk-27-1.png" style="display: block; margin: auto;" /&gt;
+
+---
+
+&lt;img src="finite_prec_and_numerical_stability_files/figure-html/unnamed-chunk-28-1.png" style="display: block; margin: auto;" /&gt;
+
+---
+layout: false
+
+# Degenerate Gaussian &amp; ill-conditioning
+
+Multivariate Gaussian is _degenerate_ or _singular_ if
+* `\(\lambda_i = 0\)` for `\(i \geq k\)`, or
+* `\(\textrm{rank}(\bm{\Sigma}) &lt; \textrm{length}(\bx)\)`.
+
+--
+
+**Note:** `\(\kappa(\bm{\Sigma}) = \lambda_{\max} / \lambda_{\min}\)`, so `\(\kappa(\bm{\Sigma}) = \infty\)` if singular.
+
+--
+
+&lt;p style="margin-top:3ex;"&gt; &lt;/p&gt;
+What we encounter in practice is _near singularity_: 
+`$$\lambda_{\min} \approx 0 \ \Leftrightarrow \ \kappa(\bm{\Sigma}) \approx \infty$$`
+
+
+```r
+y_predicted &lt;- gauss_conditional_mean(y_obs, mean_new, mean_obs, Sigma_cross, Sigma_obs)
+```
+
+```
+## Error in solve.default(cov_22, y_2 - mu_2): 系统计算上是奇异的:
+倒条件数=1.31534e-20
+```
+
+---
+
+# Degenerate Gaussian &amp; ill-conditioning
+
+When we encounter a (near-)singular matrix, we need to figure out what's the "statistically right" answer.
+
+--
+
+e.g. If `\(\bm{X}^\intercal \bm{X}\)` is singular in linear model, let the user know that there's more parameters than data can estimate.
+
+--
+
+&lt;p style="margin-top:3ex;"&gt; &lt;/p&gt;
+In case of degenerate Gaussian, an approximation
+* `\(\bx \overset{\small \textrm{d}}{=} \bm{\mu} + \textstyle \sum_{\color{lava}{i \leq k}} \lambda_i^{1/2} z_i \bm{u}_i\)`, or equivalently
+* `\(\bm{\Sigma} = \sum_{\color{lava}{i \leq k}} \lambda_i \bm{u}_i \bm{u}_i^\intercal\)`,
+
+is typically sensible.
+
+---
+class: inverse, middle, center
+
+# Summary &amp; References 
+
+## Finite precision arithmetic &amp; Numerical stability
+
+---
+
+# Summary
+
+Finite precision can cause an error when there is a perfectly fine mathematical/statistical answer.
+&lt;p style="margin-top: -1ex;"&gt; &lt;/p&gt;
+* Don't stress when implementing a first verion, but figure out why and fix properly when errors arise.&lt;br&gt;
+--
+(No "hack" please.)
+
+--
+
+Magnitude of error in numerical linalg is typically proportional to `\(\kappa(\bm{A}) = \sigma_{\max}(\bm{A}) / \sigma_{\min}(\bm{A})\)`.
+&lt;p style="margin-top: -1ex;"&gt; &lt;/p&gt;
+* Check it when getting an error. If huge, figure out why.
+
+---
+
+# Summary
+
+"Solve `\(\bm{A} \bx = \bm{b}\)`" never computes `\(\bm{A}^{-1}\)`. 
+
+Similar story for "minimize `\(\| \bm{X} \bm{\beta} - \bm{y} \|\)`."
+
+When numerical linalg go haywire, singular value/eigen decomposition is your dependable friend.
+&lt;p style="margin-top: -1ex;"&gt; &lt;/p&gt;
+* But you could find ad-hoc yet more efficient friends (e.g. analytical approx, preconditioning, etc).
+
+---
+
+# Reference
+
+.center[
+![](figure/trefethen_and_bau_linalg_book.jpg)&amp;nbsp;&amp;nbsp;&amp;nbsp;
+![](figure/demmel_linalg_book.jpg)
+]
+    </textarea>
+<style data-target="print-only">@media screen {.remark-slide-container{display:block;}.remark-slide-scaler{box-shadow:none;}}</style>
+<script src="https://remarkjs.com/downloads/remark-latest.min.js"></script>
+<script>var slideshow = remark.create({
+"highlightStyle": "github",
+"slideNumberFormat": "%current%",
+"countIncrementalSlides": false
+});
+if (window.HTMLWidgets) slideshow.on('afterShowSlide', function (slide) {
+  window.dispatchEvent(new Event('resize'));
+});
+(function(d) {
+  var s = d.createElement("style"), r = d.querySelector(".remark-slide-scaler");
+  if (!r) return;
+  s.type = "text/css"; s.innerHTML = "@page {size: " + r.style.width + " " + r.style.height +"; }";
+  d.head.appendChild(s);
+})(document);
+
+(function(d) {
+  var el = d.getElementsByClassName("remark-slides-area");
+  if (!el) return;
+  var slide, slides = slideshow.getSlides(), els = el[0].children;
+  for (var i = 1; i < slides.length; i++) {
+    slide = slides[i];
+    if (slide.properties.continued === "true" || slide.properties.count === "false") {
+      els[i - 1].className += ' has-continuation';
+    }
+  }
+  var s = d.createElement("style");
+  s.type = "text/css"; s.innerHTML = "@media print { .has-continuation { display: none; } }";
+  d.head.appendChild(s);
+})(document);
+// delete the temporary CSS (for displaying all slides initially) when the user
+// starts to view slides
+(function() {
+  var deleted = false;
+  slideshow.on('beforeShowSlide', function(slide) {
+    if (deleted) return;
+    var sheets = document.styleSheets, node;
+    for (var i = 0; i < sheets.length; i++) {
+      node = sheets[i].ownerNode;
+      if (node.dataset["target"] !== "print-only") continue;
+      node.parentNode.removeChild(node);
+    }
+    deleted = true;
+  });
+})();
+(function() {
+  "use strict"
+  // Replace <script> tags in slides area to make them executable
+  var scripts = document.querySelectorAll(
+    '.remark-slides-area .remark-slide-container script'
+  );
+  if (!scripts.length) return;
+  for (var i = 0; i < scripts.length; i++) {
+    var s = document.createElement('script');
+    var code = document.createTextNode(scripts[i].textContent);
+    s.appendChild(code);
+    var scriptAttrs = scripts[i].attributes;
+    for (var j = 0; j < scriptAttrs.length; j++) {
+      s.setAttribute(scriptAttrs[j].name, scriptAttrs[j].value);
+    }
+    scripts[i].parentElement.replaceChild(s, scripts[i]);
+  }
+})();
+(function() {
+  var links = document.getElementsByTagName('a');
+  for (var i = 0; i < links.length; i++) {
+    if (/^(https?:)?\/\//.test(links[i].getAttribute('href'))) {
+      links[i].target = '_blank';
+    }
+  }
+})();</script>
+
+<script>
+slideshow._releaseMath = function(el) {
+  var i, text, code, codes = el.getElementsByTagName('code');
+  for (i = 0; i < codes.length;) {
+    code = codes[i];
+    if (code.parentNode.tagName !== 'PRE' && code.childElementCount === 0) {
+      text = code.textContent;
+      if (/^\\\((.|\s)+\\\)$/.test(text) || /^\\\[(.|\s)+\\\]$/.test(text) ||
+          /^\$\$(.|\s)+\$\$$/.test(text) ||
+          /^\\begin\{([^}]+)\}(.|\s)+\\end\{[^}]+\}$/.test(text)) {
+        code.outerHTML = code.innerHTML;  // remove <code></code>
+        continue;
+      }
+    }
+    i++;
+  }
+};
+slideshow._releaseMath(document);
+</script>
+<!-- dynamically load mathjax for compatibility with self-contained -->
+<script>
+(function () {
+  var script = document.createElement('script');
+  script.type = 'text/javascript';
+  script.src  = 'https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-MML-AM_CHTML';
+  if (location.protocol !== 'file:' && /^https?:/.test(script.src))
+    script.src  = script.src.replace(/^https?:/, '');
+  document.getElementsByTagName('head')[0].appendChild(script);
+})();
+</script>
+  </body>
+</html>
