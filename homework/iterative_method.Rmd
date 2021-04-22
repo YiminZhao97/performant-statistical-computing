@@ -39,10 +39,26 @@ auto_corr <- .9 # Corresponds to `\phi` above
 
 ar_precision_matvec <- function(v, auto_corr) {
   # Fill in
+  n = length(v)
+  v.1 = v[1]
+  v.n = v[n]
+  
+  v1 = -auto_corr * v
+  v1[n] = 0
+  
+  v2 = (1 + auto_corr^2) * v
+  v2[1] = v.1
+  v2[n] = v.n
+  
+  v3 = -auto_corr * v
+  v3[1] = 0
+
+  return(1 / (1 - auto_corr^2) * (v1 + v2 + v3))
 }
 
 ar_eig <- eigs_sym(
   ar_precision_matvec, args = auto_corr,
+  k = 10, n = ar_length,which = "LM", 
   # Fill in
   opts = list(
     ncv = 100, # Spectrum distribution of AR-1 process is not very spread out on the extreme ends and is actually a hard case for Lanczos. So it helps to have more Lanczos vectors than the default for faster convergence.
@@ -56,6 +72,17 @@ Now, directly compute the eigen decomposition of $\boldsymbol{\Sigma}$ (not $\bo
 
 ```{r}
 # Fill in
+ar_length <- 4096
+auto_corr <- .9 
+
+library(knitr)
+library(CVTuningCov)
+Sigma = AR1(ar_length, auto_corr)
+result1 = eigs(Sigma, 10)
+result2 = eigen(Sigma)[1:10]
+
+result = data.frame('Lancsoz' = result1$values[1:10], 'Eigen' = result2$values[1:10])
+knitr::kable(result)
 ```
 
 **Remark:** 
