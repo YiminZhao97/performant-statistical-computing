@@ -125,8 +125,19 @@ calculate 95% CI intervals of the interpolation, and plot them.
 Sigma_new <- sq_exp_cov(dist_new, corr_range)
 conditional_var <- Sigma_new - Sigma_cross %*% inverse_Sigma_obs %*% t(Sigma_cross)
 
-CI.upper = y_predicted + 1.96 * as.matrix(diag(conditional_var))
-CI.lower = y_predicted - 1.96 * as.matrix(diag(conditional_var))
+CI.upper = as.numeric(y_predicted + 1.96 * as.matrix(diag(conditional_var)))
+CI.lower = as.numeric(y_predicted - 1.96 * as.matrix(diag(conditional_var)))
+
+library(ggplot2)
+plot.ci = data.frame('x' = loc_new,
+                     'CI.upper' = CI.upper,
+                     'CI.lower' = CI.lower,
+                     'estimate' = y_predicted)
+
+ggplot(plot.ci, aes(x=x, y = estimate)) + 
+    geom_point()+
+  geom_errorbar(width=.001, aes(ymin=CI.lower, ymax=CI.upper), colour="darkred") +
+  labs(y = '95% onfidence interval')
 ```
 
 ## Part 3: Kriging based on an alternative GP covariance function
